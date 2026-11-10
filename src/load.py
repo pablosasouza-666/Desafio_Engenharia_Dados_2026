@@ -1,0 +1,1 @@
+# gravação em Parquet particionado
