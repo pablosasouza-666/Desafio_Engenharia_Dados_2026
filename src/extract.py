@@ -84,8 +84,8 @@ def buscar_medicoes_diarias(openaq: HttpClient, id_sensor: int) -> list[dict[str
         resposta = openaq.get(
             f"sensors/{id_sensor}/days",
             params={
-                "datetime_from": config.DATA_INICIO,  # início do período
-                "datetime_to": f"{config.DATA_FIM}T23:59:59Z",  # fim, incluindo o último dia inteiro
+                "date_from": config.DATA_INICIO,  # início do período (o endpoint de médias diárias usa date_from)
+                "date_to": config.DATA_FIM,  # fim do período, já inclusivo
                 "limit": limite,  # registros por página
                 "page": pagina,  # número da página atual
             },
