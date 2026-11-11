@@ -155,3 +155,101 @@ def silver_clima(spark: SparkSession) -> DataFrame:
 
     # devolve a silver de clima
     return largo
+
+    # ===== PARÂMETROS DO ENRIQUECIMENTO =====
+# diretriz diária da OMS (2021) para PM2.5, em µg/m³
+LIMITE_OMS_PM25: float = 15.0
+# metas intermediárias da OMS usadas para graduar as categorias acima da diretriz
+LIMITE_MODERADA_PM25: float = 25.0
+LIMITE_RUIM_PM25: float = 50.0
+# chuva mínima (mm) para considerar o dia chuvoso (convenção meteorológica)
+LIMITE_DIA_CHUVOSO_MM: float = 1.0
+
+
+# ===== FUNÇÃO PRINCIPAL: gera a gold (cruzamento + enriquecimento) =====
+def gold_qualidade_ar(spark: SparkSession, medicoes: DataFrame, clima: DataFrame) -> DataFrame:
+    # ===== BLOCO 1: pivota as medições em colunas (uma linha por estação + dia) =====
+    poluicao = (
+        medicoes
+        # mantém só os parâmetros usados na análise
+        .filter(F.col("parametro").isin("pm25", "pm10", "temperature", "relativehumidity"))
+        # PIVOT: cada parâmetro vira uma coluna
+        .groupBy("id_estacao", "data")
+        .pivot("parametro", ["pm25", "pm10", "temperature", "relativehumidity"])
+        .agg(F.first("valor"))
+        # renomeia para nomes que deixam claro a unidade e a origem (sensor)
+        .withColumnRenamed("pm25", "pm25_ugm3")
+        .withColumnRenamed("pm10", "pm10_ugm3")
+        .withColumnRenamed("temperature", "temperatura_sensor_c")
+        .withColumnRenamed("relativehumidity", "umidade_sensor_pct")
+    )
+
+    # ===== BLOCO 2: separa a cobertura do PM2.5 (% do dia medido) =====
+    cobertura = (
+        medicoes
+        .filter(F.col("parametro") == "pm25")  # só o poluente principal
+        .select("id_estacao", "data", F.col("pct_completo").alias("pct_completo_pm25"))
+    )
+
+    # ===== BLOCO 3: tabela de estações a partir do config (id -> capital) =====
+    # cria um DataFrame pequeno a partir do dicionário, como um INSERT de 6 linhas
+    estacoes = spark.createDataFrame(
+        [(id_estacao, cidade) for id_estacao, cidade in config.ESTACOES.items()],
+        "id_estacao INT, cidade STRING",  # schema declarado em formato DDL
+    )
+
+    # ===== BLOCO 4: cruza as fontes com JOIN em SQL (transformação 4) =====
+    # registra cada DataFrame como view para o SQL enxergar
+    clima.createOrReplaceTempView("silver_clima")
+    poluicao.createOrReplaceTempView("silver_poluicao")
+    cobertura.createOrReplaceTempView("silver_cobertura")
+    estacoes.createOrReplaceTempView("dim_estacoes")
+    # clima é a base (todos os dias); poluição entra com LEFT JOIN para não perder dias sem medição
+    cruzado = spark.sql("""
+        SELECT
+          c.id_estacao,
+          e.cidade,
+          c.data,
+          p.pm25_ugm3,                                  -- poluente principal (OpenAQ)
+          p.pm10_ugm3,                                  -- só existe no Rio
+          cb.pct_completo_pm25,                         -- % do dia com medição de PM2.5
+          p.temperatura_sensor_c,                       -- temperatura medida no sensor (local)
+          p.umidade_sensor_pct,                         -- umidade medida no sensor (local)
+          c.temperatura_c  AS temperatura_nasa_c,       -- temperatura modelada (regional)
+          c.chuva_mm,
+          c.umidade_pct    AS umidade_nasa_pct,
+          c.vento_ms
+        FROM silver_clima c
+        INNER JOIN dim_estacoes e                       -- traz o nome da capital
+          ON c.id_estacao = e.id_estacao
+        LEFT JOIN silver_poluicao p                     -- poluição do mesmo dia e estação
+          ON c.id_estacao = p.id_estacao AND c.data = p.data
+        LEFT JOIN silver_cobertura cb                   -- cobertura do PM2.5 do mesmo dia
+          ON c.id_estacao = cb.id_estacao AND c.data = cb.data
+    """)
+
+    # ===== BLOCO 5: enriquece com métricas derivadas (transformação 5) =====
+    enriquecido = (
+        cruzado
+        # categoria da qualidade do ar pelo PM2.5 (como um CASE WHEN em SQL)
+        .withColumn(
+            "categoria_ar",
+            F.when(F.col("pm25_ugm3").isNull(), F.lit(None))  # sem medição: sem categoria
+            .when(F.col("pm25_ugm3") <= LIMITE_OMS_PM25, "Boa")
+            .when(F.col("pm25_ugm3") <= LIMITE_MODERADA_PM25, "Moderada")
+            .when(F.col("pm25_ugm3") <= LIMITE_RUIM_PM25, "Ruim")
+            .otherwise("Muito ruim"),
+        )
+        # True quando o dia passou da diretriz da OMS (nulo se não houve medição)
+        .withColumn("acima_diretriz_oms", F.col("pm25_ugm3") > LIMITE_OMS_PM25)
+        # True quando choveu 1 mm ou mais
+        .withColumn("dia_chuvoso", F.col("chuva_mm") >= LIMITE_DIA_CHUVOSO_MM)
+        # diferença entre o termômetro local e o modelo regional, com 2 casas decimais
+        .withColumn("dif_temp_sensor_nasa_c", F.round(F.col("temperatura_sensor_c") - F.col("temperatura_nasa_c"), 2))
+        # colunas de partição: ano e mês da data
+        .withColumn("ano", F.year(F.col("data")))
+        .withColumn("mes", F.month(F.col("data")))
+    )
+
+    # devolve a tabela gold
+    return enriquecido
