@@ -29,8 +29,8 @@ DATA_FIM: str = "2026-10-31"
 # ---------------------------------------------------------------
 # API de qualidade do ar (exige chave)
 OPENAQ_BASE_URL: str = "https://api.openaq.org/v3"
-# API de histórico climático da Open-Meteo (archive = dados passados; sem chave)
-OPENMETEO_BASE_URL: str = "https://archive-api.open-meteo.com/v1"
+# API de clima diário histórico da NASA POWER (sem chave; agência governamental)
+NASA_POWER_BASE_URL: str = "https://power.larc.nasa.gov/api/temporal/daily"
 
 # ---------------------------------------------------------------
 # Caminhos

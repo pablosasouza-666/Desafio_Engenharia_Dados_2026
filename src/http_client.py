@@ -31,6 +31,7 @@ class HttpClient:
         max_tentativas: int = 5,  # quantas vezes tentar antes de desistir
         intervalo_minimo: float = 1.0,  # segundos mínimos entre uma chamada e outra (rate limit)
         timeout: int = 30,  # segundos máximos esperando cada resposta
+        espera_maxima: float = 60.0,  # teto de espera por tentativa; acima disso, desiste
     ) -> None:  # -> None indica que o construtor não devolve valor
         # guarda a URL base sem barra no final, para montar endpoints sem "//"
         self.base_url = base_url.rstrip("/")
@@ -43,6 +44,7 @@ class HttpClient:
         # guarda o tempo limite de cada requisição
         self.timeout = timeout
         # horário da última chamada; começa em 0 para a primeira não esperar
+        self.espera_maxima = espera_maxima # guarda o teto de espera entre tentativas
         self._ultima_chamada = 0.0
         # sessão reaproveita a mesma conexão entre chamadas, o que é mais rápido
         self.sessao = requests.Session()
@@ -67,6 +69,9 @@ class HttpClient:
         else:
             # senão, usa backoff exponencial: 2s, 4s, 8s, 16s...
             espera = 2.0 ** tentativa
+        # se a espera pedida passa do teto, não vale a pena esperar: falha rápido
+        if espera > self.espera_maxima:
+            raise RuntimeError(f"Espera de {espera:.0f}s excede o teto de {self.espera_maxima:.0f}s")
         # registra no log quanto tempo vai esperar
         logger.info("Aguardando %.0fs antes da tentativa %d", espera, tentativa + 1)
         # pausa o programa
