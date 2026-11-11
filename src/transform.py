@@ -6,6 +6,9 @@ from pyspark.sql import DataFrame, SparkSession, Window
 # functions (apelidado de F): funções de coluna do Spark, como as funções do SQL (CAST, LOWER, ROW_NUMBER...)
 from pyspark.sql import functions as F
 
+# tipos do Spark para declarar o schema explicitamente (como as colunas de um CREATE TABLE)
+from pyspark.sql.types import DoubleType, LongType, MapType, StringType, StructField, StructType
+
 # config: caminhos e configurações centrais do projeto
 from src import config
 
@@ -83,3 +86,72 @@ def silver_medicoes(spark: SparkSession) -> DataFrame:
 
     # devolve a tabela silver de medições
     return deduplicado
+
+    # ===== SCHEMA EXPLÍCITO DO JSON DA NASA POWER =====
+# declara só os campos que usamos; properties.parameter vira MAPA de mapas: {variável: {data: valor}}
+SCHEMA_NASA = StructType([
+    StructField("id_estacao", LongType()),  # estação a que o clima pertence
+    StructField("properties", StructType([  # bloco "properties" do JSON
+        StructField("parameter", MapType(StringType(), MapType(StringType(), DoubleType()))),  # mapa de mapas
+    ])),
+])
+
+# códigos da NASA -> nomes de colunas legíveis no nosso projeto
+VARIAVEIS_NASA: dict[str, str] = {
+    "T2M": "temperatura_c",  # temperatura média do dia (°C)
+    "PRECTOTCORR": "chuva_mm",  # chuva acumulada no dia (mm)
+    "RH2M": "umidade_pct",  # umidade relativa média (%)
+    "WS10M": "vento_ms",  # velocidade média do vento (m/s)
+}
+
+# valor que a NASA usa para "sem dado"
+VALOR_AUSENTE_NASA: float = -999.0
+
+
+# ===== FUNÇÃO PRINCIPAL: gera a silver de clima da NASA POWER =====
+def silver_clima(spark: SparkSession) -> DataFrame:
+    # ===== BLOCO 1: lê os JSONs brutos com schema explícito =====
+    # .schema(...) impõe a estrutura declarada, em vez de deixar o Spark adivinhar
+    bruto = spark.read.schema(SCHEMA_NASA).option("multiLine", True).json(f"{PASTA_BRONZE}/nasa_power/")
+    # registra como view temporária para o SQL enxergar
+    bruto.createOrReplaceTempView("bronze_clima")
+
+    # ===== BLOCO 2: duplo EXPLODE de mapas em SQL =====
+    # 1º EXPLODE: abre o mapa externo -> uma linha por variável (T2M, RH2M...) com sua série
+    # 2º EXPLODE: abre a série -> uma linha por data com o valor
+    explodido = spark.sql("""
+        SELECT
+          id_estacao,                                             -- estação (chave do JOIN)
+          variavel,                                               -- código da NASA (T2M, PRECTOTCORR...)
+          data_txt,                                               -- data como texto AAAAMMDD
+          valor                                                   -- valor do dia
+        FROM bronze_clima
+        LATERAL VIEW EXPLODE(properties.parameter) t1 AS variavel, serie  -- mapa externo: chave e valor
+        LATERAL VIEW EXPLODE(serie) t2 AS data_txt, valor                 -- mapa interno: chave e valor
+    """)
+
+    # ===== BLOCO 3: padroniza tipos, datas e trata o código de ausência =====
+    tipado = explodido.select(
+        F.col("id_estacao").cast("int").alias("id_estacao"),  # garante inteiro, igual à silver de medições
+        F.upper(F.trim(F.col("variavel"))).alias("variavel"),  # padroniza o código em maiúsculas
+        F.to_date(F.col("data_txt"), "yyyyMMdd").alias("data"),  # "20251201" vira DATE 2025-12-01
+        # -999 significa "sem dado": vira NULL (como um CASE WHEN valor = -999 THEN NULL ELSE valor END)
+        F.when(F.col("valor") == VALOR_AUSENTE_NASA, None).otherwise(F.col("valor")).alias("valor"),
+    )
+
+    # ===== BLOCO 4: pivota as variáveis em colunas (uma linha por estação + dia) =====
+    # groupBy + pivot: equivale a um PIVOT em SQL; F.first pega o único valor de cada célula
+    largo = (
+        tipado
+        .groupBy("id_estacao", "data")  # uma linha por estação + dia (isso também deduplica)
+        .pivot("variavel", list(VARIAVEIS_NASA.keys()))  # cada código vira uma coluna
+        .agg(F.first("valor"))  # valor da célula
+    )
+
+    # ===== BLOCO 5: renomeia as colunas para nomes legíveis =====
+    # percorre o dicionário e troca T2M -> temperatura_c, etc.
+    for codigo, nome in VARIAVEIS_NASA.items():
+        largo = largo.withColumnRenamed(codigo, nome)
+
+    # devolve a silver de clima
+    return largo
