@@ -15,7 +15,6 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
 # ===== CONTRATO DA GOLD: colunas e tipos esperados =====
-# é o "CREATE TABLE" que a tabela final precisa respeitar
 ESQUEMA_GOLD: dict[str, str] = {
     "id_estacao": "int",
     "cidade": "string",
