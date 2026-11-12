@@ -1,0 +1,110 @@
+{
+  "gerado_em": "2026-11-12T20:01:55.365762+00:00",
+  "status_geral": "alerta",
+  "extracao": {
+    "extraido_em": "2026-11-12T20:00:39.768166+00:00",
+    "estacoes_ok": 6,
+    "sensores_ok": 29,
+    "falhas": []
+  },
+  "linhas_gold": 2010,
+  "verificacoes": {
+    "schema": {
+      "status": "aprovado",
+      "faltando": [],
+      "tipo_errado": {},
+      "sobrando": []
+    },
+    "nulos": {
+      "status": "aprovado",
+      "null_ratio": {
+        "id_estacao": 0.0,
+        "cidade": 0.0,
+        "data": 0.0,
+        "pm25_ugm3": 0.1746,
+        "pm10_ugm3": 0.8348,
+        "pct_completo_pm25": 0.1746,
+        "temperatura_sensor_c": 0.3393,
+        "umidade_sensor_pct": 0.3393,
+        "temperatura_nasa_c": 0.0,
+        "chuva_mm": 0.0,
+        "umidade_nasa_pct": 0.0,
+        "vento_ms": 0.0,
+        "categoria_ar": 0.1746,
+        "acima_diretriz_oms": 0.1746,
+        "dia_chuvoso": 0.0,
+        "dif_temp_sensor_nasa_c": 0.3393,
+        "ano": 0.0,
+        "mes": 0.0
+      },
+      "obrigatorias_com_nulo": []
+    },
+    "unicidade": {
+      "status": "aprovado",
+      "chave": [
+        "id_estacao",
+        "data"
+      ],
+      "total": 2010,
+      "distintas": 2010,
+      "duplicadas": 0
+    },
+    "intervalos": {
+      "status": "aprovado",
+      "faixas": {
+        "pm25_ugm3": [
+          0.0,
+          500.0
+        ],
+        "pm10_ugm3": [
+          0.0,
+          600.0
+        ],
+        "pct_completo_pm25": [
+          0.0,
+          100.0
+        ],
+        "temperatura_sensor_c": [
+          -10.0,
+          50.0
+        ],
+        "temperatura_nasa_c": [
+          -10.0,
+          50.0
+        ],
+        "umidade_sensor_pct": [
+          0.0,
+          100.0
+        ],
+        "umidade_nasa_pct": [
+          0.0,
+          100.0
+        ],
+        "chuva_mm": [
+          0.0,
+          300.0
+        ],
+        "vento_ms": [
+          0.0,
+          40.0
+        ]
+      },
+      "fora_da_faixa": {}
+    },
+    "cobertura_pm25": {
+      "status": "alerta",
+      "minimo": 0.5,
+      "por_cidade": {
+        "Manaus": 0.9254,
+        "Porto Velho": 0.9104,
+        "Rio de Janeiro": 0.9881,
+        "Salvador": 0.9821,
+        "São Paulo": 0.9881,
+        "Vitória": 0.1582
+      },
+      "abaixo_do_minimo": [
+        "Vitória"
+      ]
+    }
+  }
+}
