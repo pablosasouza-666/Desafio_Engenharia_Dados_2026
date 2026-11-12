@@ -23,6 +23,7 @@ from src.http_client import HttpClient
 # logger com o nome deste módulo
 logger = logging.getLogger(__name__)
 
+# ===== CONSTANTES DA EXTRAÇÃO =====
 # pasta da camada bronze dentro do Volume
 PASTA_BRONZE: str = f"{config.VOLUME}/bronze"
 
@@ -35,7 +36,7 @@ VARIAVEIS_CLIMA: list[str] = [
 ]
 
 
-# cria os dois clientes HTTP; devolve uma tupla (openaq, nasa)
+# ===== FUNÇÃO: cria os clientes HTTP das duas APIs =====
 def criar_clientes() -> tuple[HttpClient, HttpClient]:
     # carrega o key.env; override=True garante o valor mais recente
     load_dotenv(config.ARQUIVO_ENV, override=True)
@@ -52,7 +53,7 @@ def criar_clientes() -> tuple[HttpClient, HttpClient]:
     return openaq, nasa
 
 
-# salva qualquer estrutura Python como arquivo JSON no caminho indicado
+# ===== FUNÇÃO: salva um dicionário como arquivo JSON =====
 def salvar_json(dados: Any, caminho: str) -> None:
     # cria as pastas do caminho, se ainda não existirem
     os.makedirs(os.path.dirname(caminho), exist_ok=True)
@@ -64,13 +65,13 @@ def salvar_json(dados: Any, caminho: str) -> None:
     logger.info("Salvo: %s", caminho)
 
 
-# busca os metadados de uma estação (coordenadas e lista aninhada de sensores)
+# ===== FUNÇÃO: busca os metadados de uma estação no OpenAQ =====
 def buscar_estacao(openaq: HttpClient, id_estacao: int) -> dict[str, Any]:
     # a API devolve uma lista "results" com um único item: a estação
     return openaq.get(f"locations/{id_estacao}")["results"][0]
 
 
-# busca as médias diárias de um sensor no período configurado, percorrendo todas as páginas
+# ===== FUNÇÃO: busca as médias diárias de um sensor, página por página =====
 def buscar_medicoes_diarias(openaq: HttpClient, id_sensor: int) -> list[dict[str, Any]]:
     # lista que acumula as medições de todas as páginas
     todas: list[dict[str, Any]] = []
@@ -103,7 +104,7 @@ def buscar_medicoes_diarias(openaq: HttpClient, id_sensor: int) -> list[dict[str
     return todas
 
 
-# busca o clima diário histórico de uma coordenada na NASA POWER
+# ===== FUNÇÃO: busca o clima diário de uma coordenada na NASA POWER =====
 def buscar_clima(nasa: HttpClient, latitude: float, longitude: float) -> dict[str, Any]:
     # chama o endpoint "point" (dados de um ponto geográfico)
     return nasa.get(
@@ -120,8 +121,9 @@ def buscar_clima(nasa: HttpClient, latitude: float, longitude: float) -> dict[st
     )
 
 
-# função principal da extração: percorre as estações e grava tudo na bronze
+# ===== FUNÇÃO PRINCIPAL: extrai tudo e grava na bronze =====
 def extrair() -> dict[str, Any]:
+    # ===== BLOCO: preparação =====
     # cria os clientes HTTP das duas APIs
     openaq, nasa = criar_clientes()
     # carimbo de data/hora da execução em UTC (rastreabilidade: quando o dado foi baixado)
@@ -129,13 +131,14 @@ def extrair() -> dict[str, Any]:
     # resumo da execução, que alimenta o relatório de qualidade
     resumo: dict[str, Any] = {"extraido_em": extraido_em, "estacoes_ok": 0, "sensores_ok": 0, "falhas": []}
 
-    # percorre cada estação configurada (id -> nome da capital)
+    # ===== BLOCO: percorre cada estação configurada =====
     for id_estacao, cidade in config.ESTACOES.items():
         # try: se uma estação falhar, registra o erro e segue para a próxima
         try:
             # loga o início do processamento da estação
             logger.info("Extraindo %s (estação %d)", cidade, id_estacao)
 
+            # ----- metadados da estação -----
             # busca os metadados da estação
             estacao = buscar_estacao(openaq, id_estacao)
             # acrescenta o nome da capital e o carimbo de extração ao JSON bruto
@@ -144,6 +147,7 @@ def extrair() -> dict[str, Any]:
             # salva os metadados da estação na bronze
             salvar_json(estacao, f"{PASTA_BRONZE}/openaq/estacoes/{id_estacao}.json")
 
+            # ----- medições de cada sensor da estação -----
             # percorre cada sensor da lista aninhada "sensors"
             for sensor in estacao["sensors"]:
                 # busca as medições diárias desse sensor
@@ -155,6 +159,7 @@ def extrair() -> dict[str, Any]:
                 # conta mais um sensor extraído com sucesso
                 resumo["sensores_ok"] += 1
 
+            # ----- clima no mesmo ponto da estação -----
             # pega as coordenadas da estação, para o clima ser do mesmo ponto
             coordenadas = estacao["coordinates"]
             # busca o clima diário dessa coordenada
@@ -168,7 +173,7 @@ def extrair() -> dict[str, Any]:
             # conta mais uma estação concluída
             resumo["estacoes_ok"] += 1
 
-        # captura qualquer erro desta estação
+        # ===== BLOCO: tratamento de falha da estação =====
         except Exception as erro:
             # registra o erro no log, sem interromper as demais
             logger.error("Falha em %s (estação %d): %s", cidade, id_estacao, erro)

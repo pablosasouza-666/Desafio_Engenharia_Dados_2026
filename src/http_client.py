@@ -14,16 +14,17 @@ import requests
 # cria um logger com o nome deste módulo, para identificar de onde vem cada mensagem
 logger = logging.getLogger(__name__)
 
-# códigos HTTP que indicam falha temporária: vale a pena tentar de novo
-# 429 = muitas requisições; 500/502/503/504 = erro ou indisponibilidade do servidor
+# ===== CÓDIGOS HTTP QUE VALEM NOVA TENTATIVA =====
+# 429 = muitas requisições; 500/502/503/504 = erro ou indisponibilidade temporária do servidor
 STATUS_RETENTAVEIS = {429, 500, 502, 503, 504}
 
 
-# define a classe do cliente HTTP resiliente
+# ===== CLASSE: cliente HTTP resiliente =====
 class HttpClient:
     """Cliente HTTP com controle de taxa, retentativas e backoff exponencial."""
 
-    # método construtor: roda quando criamos o cliente, ex.: HttpClient("https://...")
+    # ===== BLOCO: configuração inicial do cliente =====
+    # roda quando criamos o cliente, ex.: HttpClient("https://...")
     def __init__(
         self,
         base_url: str,  # endereço base da API, ex.: "https://api.openaq.org/v3"
@@ -32,7 +33,7 @@ class HttpClient:
         intervalo_minimo: float = 1.0,  # segundos mínimos entre uma chamada e outra (rate limit)
         timeout: int = 30,  # segundos máximos esperando cada resposta
         espera_maxima: float = 60.0,  # teto de espera por tentativa; acima disso, desiste
-    ) -> None:  # -> None indica que o construtor não devolve valor
+    ) -> None:  # o construtor não devolve valor
         # guarda a URL base sem barra no final, para montar endpoints sem "//"
         self.base_url = base_url.rstrip("/")
         # guarda os cabeçalhos; se não vier nenhum, usa dicionário vazio
@@ -43,13 +44,15 @@ class HttpClient:
         self.intervalo_minimo = intervalo_minimo
         # guarda o tempo limite de cada requisição
         self.timeout = timeout
+        # guarda o teto de espera entre tentativas
+        self.espera_maxima = espera_maxima
         # horário da última chamada; começa em 0 para a primeira não esperar
-        self.espera_maxima = espera_maxima # guarda o teto de espera entre tentativas
         self._ultima_chamada = 0.0
         # sessão reaproveita a mesma conexão entre chamadas, o que é mais rápido
         self.sessao = requests.Session()
 
-    # garante o intervalo mínimo entre chamadas (controle de taxa / rate limiting)
+    # ===== BLOCO: controle de taxa (rate limiting) =====
+    # garante o intervalo mínimo entre uma chamada e outra
     def _respeitar_taxa(self) -> None:
         # quanto tempo passou desde a última chamada (monotonic = relógio que não volta atrás)
         decorrido = time.monotonic() - self._ultima_chamada
@@ -61,6 +64,7 @@ class HttpClient:
         # registra o horário desta chamada para a próxima comparação
         self._ultima_chamada = time.monotonic()
 
+    # ===== BLOCO: espera entre tentativas (backoff exponencial) =====
     # calcula e aplica a pausa antes de uma nova tentativa
     def _aguardar(self, tentativa: int, retry_after: str | None = None) -> None:
         # se a API informou quanto esperar (cabeçalho Retry-After em segundos), obedece
@@ -77,6 +81,7 @@ class HttpClient:
         # pausa o programa
         time.sleep(espera)
 
+    # ===== BLOCO: requisição GET com retentativas =====
     # faz uma requisição GET e devolve o JSON da resposta como dicionário
     def get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         # monta a URL completa: base + "/" + endpoint (sem barra duplicada)
@@ -87,6 +92,7 @@ class HttpClient:
             # antes de cada chamada, respeita o intervalo mínimo
             self._respeitar_taxa()
 
+            # ----- tenta a chamada; captura falhas de rede -----
             try:
                 # faz a chamada HTTP com parâmetros, cabeçalhos e tempo limite
                 resposta = self.sessao.get(
@@ -101,7 +107,7 @@ class HttpClient:
                 # volta para o início do loop (próxima tentativa)
                 continue
 
-            # se o status indica falha temporária, tenta de novo
+            # ----- falha temporária: tenta de novo -----
             if resposta.status_code in STATUS_RETENTAVEIS:
                 # loga o status recebido
                 logger.warning("Status %d em %s (tentativa %d)", resposta.status_code, url, tentativa)
@@ -110,8 +116,8 @@ class HttpClient:
                 # próxima tentativa
                 continue
 
-            # erros definitivos (ex.: 401 chave inválida, 404 não encontrado): não adianta repetir,
-            # então lança exceção imediatamente
+            # ----- erro definitivo ou sucesso -----
+            # erros definitivos (ex.: 401 chave inválida, 404 não encontrado) lançam exceção na hora
             resposta.raise_for_status()
             # sucesso: converte o corpo da resposta de JSON para dicionário Python e devolve
             return resposta.json()
