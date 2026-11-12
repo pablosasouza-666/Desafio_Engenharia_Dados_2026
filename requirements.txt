@@ -1,2 +1,5 @@
-requests
-python-dotenv
+# bibliotecas instaladas pelo pipeline (versões fixadas para reprodução exata)
+# chamadas HTTP às APIs
+requests==2.32.5
+# leitura do arquivo de credenciais (.env)
+python-dotenv==1.2.2
