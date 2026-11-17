@@ -10,8 +10,8 @@ import shutil
 # Path: manipula caminhos de forma segura
 from pathlib import Path
 
-# DataFrame: tipo da tabela do Spark
-from pyspark.sql import DataFrame
+# DataFrame: tipo da tabela do Spark; SparkSession: conexão com o Spark (usada para os comandos SQL de descrição)
+from pyspark.sql import DataFrame, SparkSession
 
 # config: caminhos centrais do projeto
 from src import config
@@ -73,3 +73,62 @@ def copiar_para_output(origem: str = PASTA_GOLD, destino: Path = PASTA_OUTPUT_GO
     logger.info("%d arquivos copiados para %s", copiados, destino)
     # devolve o total copiado
     return copiados
+
+    # ===== DESCRIÇÕES QUE APARECEM NO CATALOG =====
+# descrição de cada tabela (sem aspas simples no texto, porque vão dentro de um comando SQL)
+DESCRICOES_TABELAS: dict[str, str] = {
+    "silver_medicoes": "Medições diárias do OpenAQ desaninhadas, tipadas, sem nulos inválidos e sem duplicatas. Uma linha por estação, parâmetro e dia.",
+    "silver_clima": "Clima diário da NASA POWER desaninhado e pivotado. Uma linha por estação e dia.",
+    "gold_qualidade_ar": "Poluição do ar e clima cruzados por estação e dia, com categoria OMS, dia chuvoso e diferença de temperatura. Tabela final de análise.",
+}
+
+# descrição de cada coluna da gold
+DESCRICOES_COLUNAS_GOLD: dict[str, str] = {
+    "id_estacao": "Id da estação no OpenAQ",
+    "cidade": "Capital da estação",
+    "data": "Dia da medição, no horário local da cidade",
+    "pm25_ugm3": "Média diária de PM2.5 em µg/m³ (OpenAQ)",
+    "pm10_ugm3": "Média diária de PM10 em µg/m³ (só Rio de Janeiro)",
+    "pct_completo_pm25": "Percentual das horas do dia com medição de PM2.5",
+    "temperatura_sensor_c": "Temperatura medida no sensor em °C",
+    "umidade_sensor_pct": "Umidade medida no sensor em %",
+    "temperatura_nasa_c": "Temperatura média modelada pela NASA POWER em °C",
+    "chuva_mm": "Chuva acumulada no dia em mm (NASA POWER)",
+    "umidade_nasa_pct": "Umidade relativa média em % (NASA POWER)",
+    "vento_ms": "Velocidade média do vento em m/s (NASA POWER)",
+    "categoria_ar": "Categoria pela OMS 2021: Boa, Moderada, Ruim ou Muito ruim",
+    "acima_diretriz_oms": "Verdadeiro quando o PM2.5 passa de 15 µg/m³",
+    "dia_chuvoso": "Verdadeiro quando choveu 1 mm ou mais",
+    "dif_temp_sensor_nasa_c": "Temperatura do sensor menos a da NASA em °C",
+    "ano": "Ano da data",
+    "mes": "Mês da data",
+}
+
+
+# ===== GRAVAÇÃO: salva um DataFrame como tabela no Unity Catalog =====
+def gravar_tabela(
+    spark: SparkSession,
+    df: DataFrame,
+    nome: str,
+    descricoes_colunas: dict[str, str] | None = None,
+) -> str:
+    # nome completo em três partes: catálogo.schema.tabela
+    tabela = f"{config.CATALOGO}.{config.SCHEMA}.{nome}"
+    (
+        df.write
+        # substitui o conteúdo anterior (idempotência)
+        .mode("overwrite")
+        # aceita mudança de colunas entre execuções, em vez de dar erro
+        .option("overwriteSchema", "true")
+        # grava como tabela gerenciada (formato Delta, padrão do Unity Catalog)
+        .saveAsTable(tabela)
+    )
+    # grava a descrição da tabela, que aparece na aba Overview do Catalog
+    spark.sql(f"COMMENT ON TABLE {tabela} IS '{DESCRICOES_TABELAS[nome]}'")
+    # grava a descrição de cada coluna, que aparece na lista de colunas do Catalog
+    for coluna, descricao in (descricoes_colunas or {}).items():
+        spark.sql(f"ALTER TABLE {tabela} ALTER COLUMN {coluna} COMMENT '{descricao}'")
+    # registra no log a tabela gravada
+    logger.info("Tabela gravada: %s", tabela)
+    # devolve o nome completo da tabela
+    return tabela

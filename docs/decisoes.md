@@ -31,3 +31,8 @@
 | 27 | Um arquivo Parquet por partição (`repartition` antes de gravar) | Evita muitos arquivos pequenos, que são lentos de ler e poluem o repositório |
 | 28 | Notebook `main` cria schema e Volume (`IF NOT EXISTS`) | Qualquer pessoa consegue rodar do zero sem setup manual; idempotente |
 | 29 | PySpark fora do `requirements.txt` | A versão do Databricks é uma build própria; instalar outra por cima quebraria o ambiente |
+| 30 | Silver e gold como tabelas Delta gerenciadas no Unity Catalog (`workspace.desafio_ft03`) | Governança: permissões, histórico de versões, descrições e linhagem automática; consulta por nome, sem caminho de arquivo |
+| 31 | Bronze mantida como arquivos no Volume | É o dado cru da API; Volume é o lugar de arquivos. Em produção, com mais volume, haveria uma tabela bronze entre a landing e a silver |
+| 32 | Gold lida a partir das tabelas silver, e não da memória | Faz o Catalog registrar a linhagem completa silver → gold |
+| 33 | Descrição em cada tabela e em cada coluna da gold | Documentação dentro do próprio catálogo, visível para quem consulta |
+| 34 | Tabelas sem particionamento; Parquet do `output/` particionado por ano/mês | Para tabelas pequenas, o Databricks recomenda não particionar; o particionamento exigido pelo desafio fica no entregável Parquet |

@@ -44,3 +44,9 @@ PASTA_OUTPUT: Path = RAIZ_REPO / "output"
 
 # Volume do Databricks onde o Spark grava as camadas bronze/silver/gold
 VOLUME: str = "/Volumes/workspace/desafio_ft03/dados"
+
+# ---------------------------------------------------------------
+# Unity Catalog
+# ---------------------------------------------------------------
+CATALOGO: str = "workspace"
+SCHEMA: str = "desafio_ft03"
