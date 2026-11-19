@@ -10,9 +10,15 @@ from datetime import datetime, timezone
 # Any = qualquer tipo
 from typing import Any
 
-# DataFrame: tipo da tabela do Spark; F: funções de coluna (como funções SQL)
-from pyspark.sql import DataFrame
+# DataFrame: tabela do Spark; SparkSession: conexão com o Spark (usada para gravar a auditoria)
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
+
+# config: nome do catálogo e do schema da tabela de auditoria
+from src import config
+
+# tabela Delta que guarda o histórico de todas as execuções
+TABELA_AUDITORIA: str = f"{config.CATALOGO}.{config.SCHEMA}.auditoria_execucoes"
 
 # ===== CONTRATO DA GOLD: colunas e tipos esperados =====
 ESQUEMA_GOLD: dict[str, str] = {
@@ -33,12 +39,15 @@ ESQUEMA_GOLD: dict[str, str] = {
     "dia_chuvoso": "boolean",
     "dif_temp_sensor_nasa_c": "double",
     "ano": "int",
-    "mes": "int",
+    "mes": "int",   
+    "_processado_em": "timestamp",
+    "_id_execucao": "string",
+    "_fonte": "string",
 }
 
 # ===== COLUNAS QUE NÃO PODEM TER NULO =====
 # se alguma tiver nulo, o pipeline está com defeito (reprova)
-COLUNAS_OBRIGATORIAS: list[str] = ["id_estacao", "cidade", "data", "ano", "mes"]
+COLUNAS_OBRIGATORIAS: list[str] = ["id_estacao", "cidade", "data", "ano", "mes", "_processado_em", "_id_execucao", "_fonte"]
 
 # ===== CHAVE ÚNICA DA GOLD =====
 # só pode existir uma linha por estação + dia (como uma PRIMARY KEY)
@@ -180,3 +189,39 @@ def salvar_relatorio(relatorio: dict[str, Any], caminho: str) -> None:
     # grava com indentação (legível) e acentos preservados; default=str converte datas em texto
     with open(caminho, "w", encoding="utf-8") as arquivo:
         json.dump(relatorio, arquivo, ensure_ascii=False, indent=2, default=str)
+
+        # ===== AUDITORIA: acrescenta uma linha por execução numa tabela Delta =====
+def registrar_auditoria(spark: SparkSession, relatorio: dict[str, Any], id_execucao: str) -> None:
+    # atalhos para as partes do relatório
+    v = relatorio["verificacoes"]
+    extracao = relatorio.get("extracao") or {}
+    # monta a linha da execução
+    linha = [(
+        id_execucao,                                         # código da execução
+        relatorio["gerado_em"],                              # quando rodou
+        relatorio["status_geral"],                           # aprovado / alerta / reprovado
+        int(extracao.get("estacoes_ok", 0)),                 # estações extraídas
+        int(extracao.get("sensores_ok", 0)),                 # sensores extraídos
+        len(extracao.get("falhas", [])),                     # quantas estações falharam
+        int(relatorio["linhas_gold"]),                       # volume da gold
+        v["schema"]["status"],                               # status de cada verificação
+        v["nulos"]["status"],
+        v["unicidade"]["status"],
+        v["intervalos"]["status"],
+        v["cobertura_pm25"]["status"],
+        ", ".join(v["cobertura_pm25"]["abaixo_do_minimo"]),  # cidades com cobertura baixa
+        json.dumps(relatorio, ensure_ascii=False, default=str),  # relatório completo, para consulta
+    )]
+    # schema explícito da tabela de auditoria
+    schema = (
+        "id_execucao STRING, gerado_em STRING, status_geral STRING, estacoes_ok INT, sensores_ok INT, "
+        "qtd_falhas INT, linhas_gold BIGINT, status_schema STRING, status_nulos STRING, "
+        "status_unicidade STRING, status_intervalos STRING, status_cobertura STRING, "
+        "cidades_abaixo_cobertura STRING, relatorio_json STRING"
+    )
+    # cria o DataFrame de uma linha e converte o horário de texto para TIMESTAMP
+    df = spark.createDataFrame(linha, schema).withColumn("gerado_em", F.to_timestamp("gerado_em"))
+    # append: acrescenta sem apagar as execuções anteriores (é isso que forma o histórico)
+    df.write.mode("append").saveAsTable(TABELA_AUDITORIA)
+    # descrição da tabela no Catalog
+    spark.sql(f"COMMENT ON TABLE {TABELA_AUDITORIA} IS 'Histórico de execuções do pipeline: status do data quality, contagens e relatório completo. Uma linha por execução.'")

@@ -253,3 +253,16 @@ def gold_qualidade_ar(spark: SparkSession, medicoes: DataFrame, clima: DataFrame
 
     # devolve a tabela gold
     return enriquecido
+
+# ===== CAMPOS DE CONTROLE DE PROCESSAMENTO =====
+# acrescenta a qualquer tabela três colunas de rastreabilidade: quando, em qual execução e de qual fonte
+def adicionar_controle(df: DataFrame, id_execucao: str, fonte: str) -> DataFrame:
+    return (
+        df
+        # momento em que a linha foi processada
+        .withColumn("_processado_em", F.current_timestamp())
+        # código único da execução que gerou a linha (liga a linha à tabela de auditoria)
+        .withColumn("_id_execucao", F.lit(id_execucao))
+        # API de origem do dado
+        .withColumn("_fonte", F.lit(fonte))
+    )

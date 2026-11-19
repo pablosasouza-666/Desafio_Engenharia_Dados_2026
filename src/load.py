@@ -102,6 +102,9 @@ DESCRICOES_COLUNAS_GOLD: dict[str, str] = {
     "dif_temp_sensor_nasa_c": "Temperatura do sensor menos a da NASA em °C",
     "ano": "Ano da data",
     "mes": "Mês da data",
+    "_processado_em": "Momento em que a linha foi processada",
+    "_id_execucao": "Código da execução que gerou a linha; liga à tabela auditoria_execucoes",
+    "_fonte": "API de origem do dado",
 }
 
 

@@ -1,8 +1,8 @@
 {
-  "gerado_em": "2026-11-12T20:01:55.365762+00:00",
+  "gerado_em": "2026-11-19T17:25:00.694729+00:00",
   "status_geral": "alerta",
   "extracao": {
-    "extraido_em": "2026-11-12T20:00:39.768166+00:00",
+    "extraido_em": "2026-11-19T17:24:17.313261+00:00",
     "estacoes_ok": 6,
     "sensores_ok": 29,
     "falhas": []
@@ -35,7 +35,10 @@
         "dia_chuvoso": 0.0,
         "dif_temp_sensor_nasa_c": 0.3393,
         "ano": 0.0,
-        "mes": 0.0
+        "mes": 0.0,
+        "_processado_em": 0.0,
+        "_id_execucao": 0.0,
+        "_fonte": 0.0
       },
       "obrigatorias_com_nulo": []
     },
@@ -106,5 +109,6 @@
         "Vitória"
       ]
     }
-  }
+  },
+  "id_execucao": "6f194dbe-5513-482e-bb73-b564edb45e91"
 }
